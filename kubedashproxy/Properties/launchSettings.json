@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "kubedashproxy": {
+      "commandName": "Project",
+      "commandLineArgs": ""
+    }
+  }
+}
