@@ -22,7 +22,7 @@ class TokenProvider(KubeDashProxyConfig config, ILogger<TokenProvider> logger)
             var proc = Process.Start(new ProcessStartInfo()
             {
                 FileName = config.KubectlPath,
-                ArgumentList = { "-n", config.Namespace, "create", "token", config.ServiceAccountName },
+                ArgumentList = { "-n", config.Namespace, "create", "token", config.ServiceAccount },
                 RedirectStandardInput = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,

@@ -1,6 +1,25 @@
-﻿using System.Diagnostics;
+﻿using System.ComponentModel;
+using System.Diagnostics;
+using System.Net.Sockets;
+using System.Net;
 using Yarp.ReverseProxy.Configuration;
 using Yarp.ReverseProxy.Transforms;
+
+if (args.Intersect(new[] { "-?", "--help" }).Any())
+{
+    Console.Error.WriteLine("Usage: kubedashproxy [options]");
+    Console.Error.WriteLine();
+    Console.Error.WriteLine("Options:");
+    foreach (var prop in typeof(KubeDashProxyConfig).GetProperties())
+    {
+        var attr = (DescriptionAttribute?)Attribute.GetCustomAttribute(prop, typeof(DescriptionAttribute));
+        if (attr == null) continue;
+        var val = prop.Name + "=...";
+        Console.Error.WriteLine($"  --{val,-30} {attr.Description}");
+    }
+    Environment.Exit(-1);
+    return;
+}
 
 var builder = WebApplication.CreateSlimBuilder();
 builder.Configuration.Sources.Clear();
@@ -18,6 +37,8 @@ builder.Configuration
     .AddEnvironmentVariables("KUBEDASH_")
     .AddCommandLine(args);
 var config = builder.Configuration.Get<KubeDashProxyConfig>() ?? new();
+if (config.PortForwardListenPort == 0) config.PortForwardListenPort = NextFreeTcpPort();
+if (config.ListenUrl == null) config.ListenUrl = $"http://localhost:{NextFreeTcpPort()}";
 var url = config.ListenUrl;
 builder.WebHost.UseUrls(url);
 builder.Services.AddSingleton(config);
@@ -60,3 +81,12 @@ app.Services.GetRequiredService<ILogger<Program>>().LogInformation("Listening on
 Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
 
 await app.WaitForShutdownAsync();
+
+static int NextFreeTcpPort()
+{
+    using var l = new TcpListener(IPAddress.Loopback, 0);
+    l.Start();
+    int port = ((IPEndPoint)l.LocalEndpoint).Port;
+    l.Stop();
+    return port;
+}
