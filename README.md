@@ -3,6 +3,8 @@
 A simple way to open kubernetes dashboard in a browser without having to 
 port-forward, create a token, or create a long-lived secret.
 
+![Video showing in use](assets/kubedashproxy.gif)
+
 ## Installation
 
 Ensure kubernetes dashboard is installed in your cluster (in the `kubernetes-dashboard` namespace by convention).
