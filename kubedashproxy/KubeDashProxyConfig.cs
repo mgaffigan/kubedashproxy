@@ -8,13 +8,14 @@ public class KubeDashProxyConfig
     [Description("Kubernetes service and service-account namespace")]
     public string Namespace { get; set; } = "kubernetes-dashboard";
 
-    [Description("Upstream service or pod name (e.g.: service/kubernetes-dashboard-kong-proxy)")]
+    [Description("Upstream service or pod name")]
     public string TargetService { get; set; } = "service/kubernetes-dashboard-kong-proxy";
 
+    // String to work around https://stackoverflow.com/questions/78530829
     [Description("Service port to which traffic is sent")]
-    public int TargetServicePort { get; set; } = 443;
+    public string TargetServicePort { get; set; } = "443";
 
-    [Description("Protocol to send to upstream (https/http)")]
+    [Description("Protocol to send to upstream")]
     public string TargetServiceScheme { get; set; } = "https";
 
     [Description("Service account to use for token generation")]
@@ -26,6 +27,6 @@ public class KubeDashProxyConfig
     [Description("URL to listen on")]
     public string ListenUrl { get; set; } = null!;
 
-    [Description("Launch web browser by default (true/false)")]
-    public bool LaunchBrowser { get; set; } = true;
+    [Description("Suppress Launching web browser")]
+    public bool DoNotLaunchBrowser { get; set; } = false;
 }
