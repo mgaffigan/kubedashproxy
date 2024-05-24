@@ -1,96 +1,52 @@
-﻿using System.Net.Http.Headers;
+﻿using System.Diagnostics;
+using Yarp.ReverseProxy.Configuration;
+using Yarp.ReverseProxy.Transforms;
 
-var builder = WebApplication.CreateEmptyBuilder(new());
-builder.WebHost.UseKestrelCore();
-builder.Services.AddSingleton<ProxyMiddleware>();
-builder.Services.AddHttpClient(ProxyConstants.HttpClientName)
-    .ConfigurePrimaryHttpMessageHandler(() =>
-    {
-        return new HttpClientHandler()
+var builder = WebApplication.CreateSlimBuilder();
+builder.Configuration.Sources.Clear();
+builder.Configuration
+    .AddJsonFile("appsettings.json", optional: true)
+    .AddEnvironmentVariables("KUBEDASH_")
+    .AddCommandLine(args);
+var config = builder.Configuration.Get<KubeDashProxyConfig>() ?? new();
+var url = config.ListenUrl;
+builder.WebHost.UseUrls(url);
+builder.Services.AddSingleton(config);
+builder.Services.AddHostedService<PortForwardService>();
+builder.Services.AddSingleton<TokenProvider>();
+builder.Services.AddReverseProxy()
+    .LoadFromMemory([
+        new RouteConfig()
         {
-            ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
-        };
-    });
-var app = builder.Build();
-app.UseMiddleware<ProxyMiddleware>();
-await app.RunAsync();
-
-class ProxyMiddleware(IHttpClientFactory hcf) : IMiddleware
-{
-    public async Task InvokeAsync(HttpContext context, RequestDelegate next)
-    {
-        var requestMessage = context.CreateProxyHttpRequest("https://localhost:34943");
-        requestMessage.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "eyJhbGciOiJSUzI1NiIsImtpZCI6Il9p...");
-        var responseMessage = await hcf.CreateClient(ProxyConstants.HttpClientName).SendAsync(requestMessage);
-        await context.WriteProxyHttpResponse(responseMessage);
-    }
-}
-
-internal static class ProxyConstants
-{
-    public const string HttpClientName = "upstream";
-}
-
-internal static class ProxyExtensions
-{
-    public static HttpRequestMessage CreateProxyHttpRequest(this HttpContext context, string basePath)
-    {
-        var request = context.Request;
-
-        var requestMessage = new HttpRequestMessage();
-        var requestMethod = request.Method;
-        if (!HttpMethods.IsGet(requestMethod) &&
-            !HttpMethods.IsHead(requestMethod) &&
-            !HttpMethods.IsDelete(requestMethod) &&
-            !HttpMethods.IsTrace(requestMethod))
-        {
-            var streamContent = new StreamContent(request.Body);
-            requestMessage.Content = streamContent;
+            RouteId = "kubedash",
+            ClusterId = "kubedash",
+            Match = new RouteMatch { Path = "/{**catch-all}" }
         }
-
-        // Copy the request headers
-        foreach (var header in request.Headers)
+    ], [
+        new ClusterConfig()
         {
-            if (!requestMessage.Headers.TryAddWithoutValidation(header.Key, header.Value.ToArray()) && requestMessage.Content != null)
+            ClusterId = "kubedash",
+            Destinations = new Dictionary<string, DestinationConfig>()
             {
-                requestMessage.Content?.Headers.TryAddWithoutValidation(header.Key, header.Value.ToArray());
-            }
+                { "kubedash", new DestinationConfig() { Address = $"{config.TargetServiceScheme}://localhost:{config.PortForwardListenPort}" } }
+            },
+            HttpClient = new HttpClientConfig() { DangerousAcceptAnyServerCertificate = true }
         }
-
-        var uri = new Uri(basePath + request.PathBase + request.Path + request.QueryString);
-        requestMessage.Headers.Host = uri.Authority;
-        requestMessage.RequestUri = uri;
-        requestMessage.Method = new HttpMethod(request.Method);
-
-        return requestMessage;
-    }
-
-    public static async Task WriteProxyHttpResponse(this HttpContext context, HttpResponseMessage responseMessage)
+    ])
+    .AddTransforms(b =>
     {
-        if (responseMessage == null)
+        b.AddRequestTransform(async rc =>
         {
-            throw new ArgumentNullException(nameof(responseMessage));
-        }
+            var tokenProvider = rc.HttpContext.RequestServices.GetRequiredService<TokenProvider>();
+            rc.ProxyRequest.Headers.Add("Authorization", "Bearer " + await tokenProvider.GetTokenAsync());
+        });
+    });
 
-        var response = context.Response;
+await using var app = builder.Build();
+app.MapReverseProxy();
+await app.StartAsync();
 
-        response.StatusCode = (int)responseMessage.StatusCode;
-        foreach (var header in responseMessage.Headers)
-        {
-            response.Headers[header.Key] = header.Value.ToArray();
-        }
+// Open the browser
+Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
 
-        foreach (var header in responseMessage.Content.Headers)
-        {
-            response.Headers[header.Key] = header.Value.ToArray();
-        }
-
-        // SendAsync removes chunking from the response. This removes the header so it doesn't expect a chunked response.
-        response.Headers.Remove("transfer-encoding");
-
-        using (var responseStream = await responseMessage.Content.ReadAsStreamAsync())
-        {
-            await responseStream.CopyToAsync(response.Body, 64 * 1024, context.RequestAborted);
-        }
-    }
-}
+await app.WaitForShutdownAsync();
