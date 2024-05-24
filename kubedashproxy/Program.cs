@@ -5,6 +5,15 @@ using Yarp.ReverseProxy.Transforms;
 var builder = WebApplication.CreateSlimBuilder();
 builder.Configuration.Sources.Clear();
 builder.Configuration
+    .AddInMemoryCollection(new Dictionary<string, string?>()
+    {
+        { "Logging:LogLevel:Default", "Information" },
+        { "Logging:LogLevel:Microsoft.Hosting.Lifetime", "Warning" },
+        { "Logging:LogLevel:Microsoft.AspNetCore.Hosting.Diagnostics", "Warning" },
+        { "Logging:LogLevel:Microsoft.AspNetCore.DataProtection.KeyManagement.XmlKeyManager", "Warning" },
+        { "Logging:LogLevel:Microsoft.AspNetCore.Routing.EndpointMiddleware", "Warning" },
+        { "Logging:LogLevel:Yarp.ReverseProxy.Forwarder.HttpForwarder", "Warning" },
+    })
     .AddJsonFile("appsettings.json", optional: true)
     .AddEnvironmentVariables("KUBEDASH_")
     .AddCommandLine(args);
@@ -45,6 +54,7 @@ builder.Services.AddReverseProxy()
 await using var app = builder.Build();
 app.MapReverseProxy();
 await app.StartAsync();
+app.Services.GetRequiredService<ILogger<Program>>().LogInformation("Listening on {url}", url);
 
 // Open the browser
 Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
